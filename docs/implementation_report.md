@@ -130,3 +130,34 @@ Offline count rose 32 → 35 (new: token-required, debug-disabled-404, rate-limi
 - No browser-automated click-through of the Next.js PIN UI was run; the UI path is covered by the Docker HTTP smoke test (same endpoints/payloads) and the frontend production build.
 - The live suite depends on an external provider: results above are from one run on 2026-10-29 with `gpt-4o-mini`; future runs may vary in wording and cost.
 - `docker compose` state from this session is local only; see README for startup commands.
+
+---
+
+# Final hardening pass (2026-10-29, third pass) — actual evidence
+
+## Changes
+
+1. **Verification customer binding:** `POST /verify` now rejects (HTTP 400, generic message) when the supplied `customer_id` differs from the ID collected in this conversation (`pending_customer_id` from graph state). Rejection happens before the PIN check and before any billing call, reveals nothing about either ID, and does not consume a verification attempt. Regression tests: `test_verify_customer_id_mismatch_rejected_then_correct_succeeds` (a different customer's correct PIN, CUST-1002/5678, is rejected with `billing.calls == 0`, then CUST-1001 completes) and `test_verify_customer_id_mismatch_does_not_consume_attempt` (3 mismatches do not lock out the collected ID).
+2. **YAML prompts:** OpenAI classifier and billing-explanation prompts moved from Python literals into `config/prompts/intent.yaml` and `config/prompts/explain_billing.yaml`, loaded by `app/services/prompts.py` (`yaml.safe_load`, ID-checked). The strict JSON key contract is appended programmatically to the YAML classifier prompt; existing validation is preserved (enum check, `category`→`intent` alias tolerated before strict Pydantic validation, amount grounding and fallback unchanged). `grep` confirms no hardcoded prompt text remains in `app/services/model.py`. Unit coverage: `tests/test_prompts.py` (3 tests).
+3. **Playwright E2E:** `frontend/e2e/chat.spec.ts` (Playwright 1.64.1, Chromium headless) drives the real UI through nginx: create conversation → billing inquiry → customer ID → dedicated PIN field → displayed grounded response (8,800円 / 6,600円 / 差額2,200円), and asserts the PIN never appears as a chat user message.
+
+## Executed commands and actual results
+
+```text
+$ uv run pytest -q                                   -> 40 passed (offline FakeModel; was 35, +2 mismatch, +3 prompt tests)
+$ uv run ruff check .                                -> All checks passed!
+$ RUN_LIVE_LLM=1 uv run pytest tests_live/ -q        -> 5 passed (real OpenAI, YAML prompts, incl. grounded billing)
+$ docker compose up -d --build; docker compose ps    -> backend/frontend/nginx all (healthy)
+$ python3 scripts/docker_smoke.py http://localhost:8080 -> 9/9 PASS, SMOKE OK
+$ cd frontend && npx playwright test                 -> 1 passed (428ms test, 2.2s total, Chromium headless shell)
+```
+
+Environment notes: this sandbox required `PLAYWRIGHT_BROWSERS_PATH=/tmp/ms-playwright` (default `~/Library/Caches/ms-playwright` is not writable here) and `UV_CACHE_DIR=/tmp/uv-cache`. On a normal dev machine both commands work with default paths; `playwright.config.ts` defaults `E2E_BASE_URL` to `http://localhost:8080`.
+
+## Remaining limitations
+
+- Playwright covers the happy billing path only (one test); FAQ/handoff/lockout remain covered by API-level tests, not browser tests.
+- The E2E test depends on the Docker stack being up; it does not start the stack itself (documented in the config header).
+- Live LLM results are from one run (2026-10-29, gpt-4o-mini); wording may vary, assertions check states/grounded amounts only.
+- The mismatch rejection is 400-before-PIN-check by design; it intentionally does not count toward lockout, so the collected customer can still complete verification (covered by test).
+- Third-pass changes are uncommitted in the working tree at the time of writing (second-pass work is in commit 30f2b60).

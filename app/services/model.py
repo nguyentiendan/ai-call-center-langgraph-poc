@@ -62,10 +62,12 @@ class OpenAIModel:
         self._model = model
 
     def classify(self, text: str) -> IntentResult:
+        from .prompts import intent_system_prompt
+
         resp = self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {"role": "system", "content": "あなたは通信会社の問い合わせ分類器です。必ず次のキーを持つJSONだけを返してください: {\"intent\": \"billing_inquiry|faq|human_handoff|unknown のいずれか\", \"confidence\": 0から1の数値}。他のキーは使わないでください。"},
+                {"role": "system", "content": intent_system_prompt()},
                 {"role": "user", "content": text[:2000]},
             ],
             response_format={"type": "json_object"},
@@ -83,12 +85,12 @@ class OpenAIModel:
     def explain_billing(self, facts: dict, question: str) -> str:
         import json
 
+        from .prompts import billing_messages
+
+        system, user = billing_messages(json.dumps(facts, ensure_ascii=False), question)
         resp = self._client.chat.completions.create(
             model=self._model,
-            messages=[
-                {"role": "system", "content": "必ず提供された請求事実だけに基づき、丁寧で簡潔な日本語で説明してください。金額を推測しないでください。"},
-                {"role": "user", "content": f"質問: {question}\n請求事実(JSON): {json.dumps(facts, ensure_ascii=False)}"},
-            ],
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         )
         return (resp.choices[0].message.content or "").strip()
 

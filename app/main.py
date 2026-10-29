@@ -10,7 +10,13 @@ from fastapi.responses import JSONResponse
 from .api.schemas import MessageIn, VerifyIn
 from .core.config import ROOT, get_model_provider, get_workflow_path
 from .services.billing import BillingService, TrustedBindings
-from .services.conversation import ConversationClosed, ConversationNotFound, ConversationService, InvalidState
+from .services.conversation import (
+    ConversationClosed,
+    ConversationNotFound,
+    ConversationService,
+    CustomerMismatch,
+    InvalidState,
+)
 from .services.faq import FaqService
 from .services.handoff import HandoffService
 from .services.model import build_model
@@ -111,6 +117,8 @@ def create_app(workflow_path: Path | None = None, model=None, billing=None,
             raise HTTPException(404, "unknown conversation") from None
         except ConversationClosed:
             raise HTTPException(409, "conversation closed; create a new conversation") from None
+        except CustomerMismatch:
+            raise HTTPException(400, "customer_id does not match this conversation") from None
         except InvalidState:
             raise HTTPException(409, "conversation is not awaiting verification") from None
 

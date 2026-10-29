@@ -21,6 +21,9 @@ class ConversationClosed(RuntimeError):
 class InvalidState(RuntimeError):
     pass
 
+class CustomerMismatch(ValueError):
+    """The /verify customer_id differs from the ID collected in this conversation."""
+
 class ConversationService:
     def __init__(self, cfg: WorkflowConfig, model, billing: BillingService, faq: FaqService,
                  handoff: HandoffService, verification: VerificationService, bindings):
@@ -59,6 +62,7 @@ class ConversationService:
             m.update({"status": v.get("status", m["status"]), "workflow_state": v.get("current_state", m["workflow_state"]),
                       "required_input": v.get("required_input"), "handoff_ticket_id": v.get("handoff_ticket_id"),
                       "intent": v.get("intent"), "intent_confidence": v.get("intent_confidence"),
+                      "pending_customer_id": v.get("pending_customer_id"),
                       "trace": v.get("trace", []), "response": v.get("response_text")})
         return m
 
@@ -89,6 +93,11 @@ class ConversationService:
             raise ConversationClosed(cid)
         if m["workflow_state"] != "collect_pin" or m.get("required_input") != "demo_pin":
             raise InvalidState("conversation is not awaiting PIN verification")
+        # The verified identity must be the one collected in THIS conversation.
+        # Reject before any PIN check or billing call; reveal nothing about either ID.
+        pending = m.get("pending_customer_id")
+        if not pending or customer_id != pending:
+            raise CustomerMismatch("customer_id does not match the ID collected in this conversation")
         # PIN lives only in this local variable and the hash check below.
         result = self.verification.verify(customer_id, demo_pin)
         demo_pin = ""  # discard secret immediately

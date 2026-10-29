@@ -180,3 +180,23 @@ def test_rate_limit_returns_429():
     cid = new_conv(client)
     codes = [msg(client, cid, "営業時間は何時ですか？").status_code for _ in range(4)]
     assert 429 in codes
+
+def test_verify_customer_id_mismatch_rejected_then_correct_succeeds():
+    billing = billing_service()
+    client, _ = make_client(billing=billing)
+    cid = new_conv(client); to_pin_step(client, cid, "CUST-1001")
+    # Correct PIN for a DIFFERENT customer must not verify or bind that customer here.
+    r = verify(client, cid, customer="CUST-1002", pin="5678")
+    assert r.status_code == 400 and billing.calls == 0
+    # Conversation is still awaiting the PIN for CUST-1001 and can complete correctly.
+    r = verify(client, cid, customer="CUST-1001", pin="1234")
+    assert r.json()["status"] == "CLOSED" and "8,800円" in r.json()["message"]
+
+def test_verify_customer_id_mismatch_does_not_consume_attempt():
+    billing = billing_service()
+    client, _ = make_client(billing=billing)
+    cid = new_conv(client); to_pin_step(client, cid, "CUST-1001")
+    for _ in range(3):
+        assert verify(client, cid, customer="CUST-1002", pin="5678").status_code == 400
+    # Three mismatches must not lock the conversation: the collected ID still verifies.
+    assert verify(client, cid, customer="CUST-1001", pin="1234").json()["status"] == "CLOSED"
