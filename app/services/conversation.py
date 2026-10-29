@@ -1,4 +1,7 @@
 """API-boundary conversation service. Owns meta store; PIN never enters the graph."""
+import hashlib
+import hmac
+import secrets
 import uuid
 
 from ..workflow.compiler import Deps, build_graph
@@ -28,10 +31,20 @@ class ConversationService:
 
     def create(self) -> dict:
         cid = str(uuid.uuid4())
+        # Demo capability token: returned once at creation, only its hash is stored.
+        # This is bearer-token demo auth, not production identity (see implementation_report).
+        token = secrets.token_urlsafe(32)
         self.meta[cid] = {"conversation_id": cid, "status": "ACTIVE", "workflow_state": self.cfg.initial_state,
-                          "required_input": None, "handoff_ticket_id": None, "intent": None}
-        return {"conversation_id": cid, "status": "ACTIVE",
+                          "required_input": None, "handoff_ticket_id": None, "intent": None,
+                          "_token_hash": hashlib.sha256(token.encode()).hexdigest()}
+        return {"conversation_id": cid, "status": "ACTIVE", "conversation_token": token,
                 "message": "こんにちは。Sakura Mobile サポートです。お問い合わせ内容を教えてください。"}
+
+    def authorize(self, cid: str, token: str | None) -> bool:
+        m = self.meta.get(cid)
+        if m is None or not token:
+            return False
+        return hmac.compare_digest(hashlib.sha256(token.encode()).hexdigest(), m.get("_token_hash", ""))
 
     def _require(self, cid: str) -> dict:
         if cid not in self.meta:

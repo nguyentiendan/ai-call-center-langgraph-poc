@@ -65,7 +65,7 @@ class OpenAIModel:
         resp = self._client.chat.completions.create(
             model=self._model,
             messages=[
-                {"role": "system", "content": "あなたは通信会社の問い合わせ分類器です。billing_inquiry, faq, human_handoff, unknown のいずれかと confidence(0-1) を JSON で返してください。"},
+                {"role": "system", "content": "あなたは通信会社の問い合わせ分類器です。必ず次のキーを持つJSONだけを返してください: {\"intent\": \"billing_inquiry|faq|human_handoff|unknown のいずれか\", \"confidence\": 0から1の数値}。他のキーは使わないでください。"},
                 {"role": "user", "content": text[:2000]},
             ],
             response_format={"type": "json_object"},
@@ -73,6 +73,8 @@ class OpenAIModel:
         import json
 
         data = json.loads(resp.choices[0].message.content or "{}")
+        if "intent" not in data and "category" in data:  # tolerate a common alias, then validate strictly
+            data["intent"] = data.pop("category")
         result = IntentResult.model_validate(data)
         if result.intent not in {"billing_inquiry", "faq", "human_handoff", "unknown"}:
             return IntentResult(intent="unknown", confidence=0.0)

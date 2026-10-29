@@ -5,15 +5,39 @@ services:
       MODEL_PROVIDER: ${MODEL_PROVIDER:-fake}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Demo-only: enables the sanitized /debug endpoint. Keep false outside local demos.
+      DEBUG_ENDPOINT_ENABLED: ${DEBUG_ENDPOINT_ENABLED:-true}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
     expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
   frontend:
     build: { context: ./frontend }
     environment:
       NEXT_PUBLIC_API_BASE: ""
     expose: ["3000"]
-    depends_on: [backend]
+    depends_on:
+      backend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
   nginx:
     image: nginx:1.27-alpine
     volumes: ["./nginx/nginx.conf:/etc/nginx/nginx.conf:ro"]
     ports: ["8080:8080"]
-    depends_on: [backend, frontend]
+    depends_on:
+      backend: { condition: service_healthy }
+      frontend: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s

@@ -79,3 +79,54 @@ See README「Demo script」: start via `docker compose up --build`, open http://
 - Gate B: all multi-turn routes pass with `FakeModel`, including mid-flow operator switch and the YAML-change proof.
 - Gate C: billing access control, PIN confidentiality, lockout, isolation, API errors (400/404/409/422), handoff idempotency — all in the green suite.
 - Gate D: API + Next.js UI run through nginx (verified by curl above), real LLM gated by credentials, tests + ruff green, this report complete.
+
+---
+
+# Hardening addendum (2026-10-29, second pass) — actual evidence
+
+## Changes made (no architecture rewrite)
+
+1. **Reproducible backend install:** `Dockerfile.backend` now does `COPY pyproject.toml uv.lock ./` (lockfile mandatory, no `uv.lock*` glob) and `RUN uv sync --frozen --no-dev`. The previous `|| uv sync --no-dev` fallback was removed. The `uv` binary is pinned (`uv:0.10.12`). Frontend install switched to `npm ci`.
+2. **Healthchecks/readiness:** backend (Python urllib `/health`), frontend (`wget /`), and nginx (`wget /health` via proxy) healthchecks in both Dockerfiles and compose; `depends_on: condition: service_healthy` (frontend waits for backend, nginx waits for both). A `GET /readiness` endpoint reports workflow/model/debug state. Observed failure during this work: the frontend healthcheck initially failed (`wget: can't connect to 127.0.0.1`) because Next standalone bound to the container hostname; fixed with `HOSTNAME=0.0.0.0 PORT=3000`, after which all three services reported `(healthy)`.
+3. **Conversation authorization:** creation returns a random `conversation_token` once; only its SHA-256 hash is stored server-side. `/messages`, `/verify`, and `/debug` require header `X-Conversation-Token`; missing/invalid returns 401, unknown conversation 404. The Next.js UI stores the token in memory only and sends it on every call.
+4. **Debug exposure:** `/debug` returns 404 unless `DEBUG_ENDPOINT_ENABLED=true`. Compose sets it `true` for the local demo explicitly; `.env.example` defaults it to `false`.
+5. **Rate limiting:** in-process sliding window (default 120 req/min per client+conversation, `RATE_LIMIT_PER_MINUTE`), returns 429. Verification lockout (3 attempts/conversation) is unchanged and separate.
+6. **Secret handling (reviewed, unchanged where already correct):** PIN only via `/verify`, hashed transiently and discarded, never in graph state/checkpoint/trace/logs; `.env` is git-ignored and was confirmed not tracked; no raw request bodies are logged; the OpenAI key is read from env only and never returned by any endpoint (`/health` reports only the model name).
+
+## Test results — reported separately
+
+```text
+OFFLINE  $ uv run pytest -q                       -> 35 passed (FakeModel, no key, deterministic)
+OFFLINE  $ uv run ruff check .                    -> All checks passed!
+LIVE     $ RUN_LIVE_LLM=1 uv run pytest tests_live/ -q -> 5 passed (real OpenAI, gpt-4o-mini)
+LIVE     $ uv run pytest tests_live/ -q (no flag) -> 5 skipped (must not be reported as passed)
+DOCKER   $ python3 scripts/docker_smoke.py        -> 9/9 PASS, "SMOKE OK" (frontend, health, create+token,
+           401 without token, billing -> customer_id -> demo_pin -> verified grounded 8,800/6,600 response,
+           PIN not echoed, 409 after close)
+DOCKER   $ docker compose ps                      -> backend/frontend/nginx all (healthy)
+```
+
+Offline count rose 32 → 35 (new: token-required, debug-disabled-404, rate-limit-429 tests).
+
+## Failures encountered and fixed during the live pass (not hidden)
+
+- First live run: **1 passed, 4 failed**. Root cause: the real model returned `{"category": "faq", ...}` instead of the contracted `{"intent": ...}` key, so strict parsing failed. Fixed in the adapter: the prompt now names the exact JSON keys, and a `category`→`intent` alias is tolerated before strict Pydantic validation. The offline FakeModel was unaffected.
+- Second live run: **4 passed, 1 failed**. The grounded billing reply was correct but formatted `8800円` without a thousands comma; the live test now asserts grounded values (comma-normalized) plus `validate_grounded`, instead of exact formatting. Final live run: **5 passed**.
+- Live wording remains non-deterministic; live assertions therefore check workflow states and grounded amounts only. This is an evaluation suite, not a determinism guarantee.
+
+## Demo-only protections (not production security)
+
+| Protection | Demo scope | Production gap |
+|---|---|---|
+| Conversation token | In-memory bearer capability, hashed at rest in process memory | No user identity, OAuth/session, token expiry/rotation, or TLS enforcement in compose |
+| Rate limiter | Single-process in-memory window, resets on restart | No distributed limiting (no Redis, per scope), no IP allowlists |
+| Debug endpoint | Env-gated, token-required, sanitized fields only | Should stay disabled outside local demos |
+| CORS | localhost:3000/8080 origins only | No production origin policy or auth headers |
+| Checkpointer/bindings/tickets | In-memory, single backend process | No Postgres/Redis, per scope; lost on restart |
+| PIN verification | Salted demo hashes, 3-attempt lockout | Not real KYC; no MFA, no audit log persistence |
+
+## Remaining limitations
+
+- No browser-automated click-through of the Next.js PIN UI was run; the UI path is covered by the Docker HTTP smoke test (same endpoints/payloads) and the frontend production build.
+- The live suite depends on an external provider: results above are from one run on 2026-10-29 with `gpt-4o-mini`; future runs may vary in wording and cost.
+- `docker compose` state from this session is local only; see README for startup commands.

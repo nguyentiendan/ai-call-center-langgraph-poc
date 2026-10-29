@@ -7,8 +7,9 @@ type Debug = { workflow_state: string; intent: string | null; intent_confidence:
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
-async function post(path: string, body?: unknown): Promise<ApiResp> {
-  const r = await fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : "{}" });
+let convToken = "";
+async function post(path: string, body?: unknown): Promise<ApiResp & { conversation_token?: string }> {
+  const r = await fetch(`${API}${path}`, { method: "POST", headers: { "Content-Type": "application/json", ...(convToken ? { "X-Conversation-Token": convToken } : {}) }, body: body ? JSON.stringify(body) : "{}" });
   const data = await r.json();
   if (!r.ok) throw new Error(data.detail ?? `HTTP ${r.status}`);
   return data;
@@ -26,12 +27,12 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
 
   async function refreshDebug(id: string) {
-    try { setDebug(await (await fetch(`${API}/api/v1/conversations/${id}/debug`)).json()); } catch { setDebug(null); }
+    try { const r = await fetch(`${API}/api/v1/conversations/${id}/debug`, { headers: convToken ? { "X-Conversation-Token": convToken } : {} }); setDebug(r.ok ? await r.json() : null); } catch { setDebug(null); }
   }
   async function start() {
     setBusy(true); setError("");
     try {
-      const r = await post("/api/v1/conversations");
+      const r = await post("/api/v1/conversations"); convToken = r.conversation_token ?? "";
       setCid(r.conversation_id); setState(r); setTurns([{ role: "assistant", text: r.message }]);
       await refreshDebug(r.conversation_id);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }

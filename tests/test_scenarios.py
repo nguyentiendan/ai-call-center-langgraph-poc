@@ -3,7 +3,7 @@ import pytest
 
 from app.services.billing import BillingAccessDenied
 from app.services.model import EvilFakeModel
-from tests.conftest import billing_service, make_client, msg, new_conv, to_pin_step, verify
+from tests.conftest import billing_service, debug, make_client, msg, new_conv, to_pin_step, verify
 
 
 def test_t01_happy_path(client):
@@ -100,9 +100,9 @@ def test_t15_interleaved_conversations_isolated():
     msg(client, b, "営業時間は何時ですか？")
     r = verify(client, a)
     assert "8,800円" in r.json()["message"]
-    dbg_b = client.get(f"/api/v1/conversations/{b}/debug").json()
+    dbg_b = debug(client, b).json()
     assert dbg_b["workflow_state"] != "close" or dbg_b["intent"] == "faq"
-    assert client.get(f"/api/v1/conversations/{b}/debug").json()["trace"][-1]["state"] in ("answer_faq", "close")
+    assert debug(client, b).json()["trace"][-1]["state"] in ("answer_faq", "close")
 
 def test_t16_duplicate_handoff_idempotent(client):
     cid = new_conv(client)
@@ -121,7 +121,7 @@ def test_t18_pin_absent_from_checkpoint_transcript_logs():
     verify(client, cid, pin="1234")
     svc = app.state.service
     checkpoint = str(svc.checkpoint_values(cid))
-    dbg = str(client.get(f"/api/v1/conversations/{cid}/debug").json())
+    dbg = str(debug(client, cid).json())
     assert "1234" not in checkpoint and "1234" not in dbg
     assert "demo_pin" not in str(svc.checkpoint_values(cid).get("messages", []))
 
@@ -148,7 +148,7 @@ def test_verify_at_wrong_stage_409(client):
     assert verify(client, cid).status_code == 409
 
 def test_unknown_conversation_404(client):
-    assert msg(client, "no-such-id", "料金").status_code == 404
+    assert client.post("/api/v1/conversations/no-such-id/messages", json={"message": "料金"}).status_code == 404
 
 def test_health(client):
     assert client.get("/health").json()["model"] == "FakeModel"
@@ -163,3 +163,20 @@ def test_yaml_change_proof_unknown_goes_straight_to_handoff():
     r2 = msg(c2, cid2, "あれをなんとかして").json()
     assert r1["workflow_state"] == "clarify" and r1["status"] == "AWAITING_INPUT"
     assert r2["status"] == "HANDOFF" and r2["handoff_ticket_id"]
+
+def test_conversation_token_required(client):
+    cid = new_conv(client)
+    assert client.post(f"/api/v1/conversations/{cid}/messages", json={"message": "料金"}).status_code == 401
+    assert client.post(f"/api/v1/conversations/{cid}/messages", json={"message": "料金"},
+                       headers={"X-Conversation-Token": "wrong"}).status_code == 401
+
+def test_debug_disabled_returns_404():
+    client, _ = make_client(debug_enabled=False)
+    cid = new_conv(client)
+    assert debug(client, cid).status_code == 404
+
+def test_rate_limit_returns_429():
+    client, _ = make_client(rate_limit_per_minute=3)
+    cid = new_conv(client)
+    codes = [msg(client, cid, "営業時間は何時ですか？").status_code for _ in range(4)]
+    assert 429 in codes

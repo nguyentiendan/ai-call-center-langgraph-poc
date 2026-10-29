@@ -7,22 +7,33 @@ from app.main import create_app
 from app.services.billing import BillingService, TrustedBindings
 from app.services.model import FakeModel
 
+TOKENS: dict[str, str] = {}
 
-def make_client(model=None, billing=None, workflow: str = "billing_v1.yaml"):
+def make_client(model=None, billing=None, workflow: str = "billing_v1.yaml", **kw):
+    kw.setdefault("debug_enabled", True)
     app = create_app(workflow_path=ROOT / f"config/workflows/{workflow}",
-                     model=model or FakeModel(), billing=billing)
+                     model=model or FakeModel(), billing=billing, **kw)
     return TestClient(app, raise_server_exceptions=False), app
 
 def new_conv(client) -> str:
     r = client.post("/api/v1/conversations")
     assert r.status_code == 200
-    return r.json()["conversation_id"]
+    body = r.json()
+    TOKENS[body["conversation_id"]] = body["conversation_token"]
+    return body["conversation_id"]
+
+def headers(cid):
+    return {"X-Conversation-Token": TOKENS[cid]}
 
 def msg(client, cid, text):
-    return client.post(f"/api/v1/conversations/{cid}/messages", json={"message": text})
+    return client.post(f"/api/v1/conversations/{cid}/messages", json={"message": text}, headers=headers(cid))
 
 def verify(client, cid, customer="CUST-1001", pin="1234"):
-    return client.post(f"/api/v1/conversations/{cid}/verify", json={"customer_id": customer, "demo_pin": pin})
+    return client.post(f"/api/v1/conversations/{cid}/verify",
+                       json={"customer_id": customer, "demo_pin": pin}, headers=headers(cid))
+
+def debug(client, cid):
+    return client.get(f"/api/v1/conversations/{cid}/debug", headers=headers(cid))
 
 def to_pin_step(client, cid, customer="CUST-1001"):
     msg(client, cid, "今月の携帯料金が先月より高いのですが。")

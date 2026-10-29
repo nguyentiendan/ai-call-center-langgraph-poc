@@ -23,10 +23,14 @@ cd frontend && npm install && npm run dev                            # frontend 
 ## Tests and lint (offline, no API key needed)
 
 ```bash
-uv run pytest      # 32 tests: T01-T20, YAML validation, YAML-change proof, intent fixture
+uv run pytest      # OFFLINE: 35 tests (FakeModel): T01-T20, YAML validation, YAML-change proof, intent fixture, token/rate-limit
 uv run ruff check .
 uv run python scripts/run_demo.py   # sanitized traces for 5 paths
+RUN_LIVE_LLM=1 uv run pytest tests_live/ -v   # LIVE (separate): real OpenAI, needs OPENAI_API_KEY; skips otherwise
+python3 scripts/docker_smoke.py                # DOCKER SMOKE: needs `docker compose up -d --build` first
 ```
+
+Offline and live results are reported separately in docs/implementation_report.md; live tests never run by default.
 
 ## Demo script
 

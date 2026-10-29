@@ -16,3 +16,4 @@ class ConversationOut(BaseModel):
     required_input: str | None = None
     handoff_ticket_id: str | None = None
     intent: str | None = None
+    conversation_token: str | None = None
