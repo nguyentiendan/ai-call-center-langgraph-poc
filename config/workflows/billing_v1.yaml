@@ -1,0 +1,71 @@
+schema_version: 1
+workflow_id: telecom_billing_v1
+locale: ja-JP
+initial_state: classify_intent
+settings:
+  max_verification_attempts: 3
+  max_clarifications: 1
+  billing_read_retries: 1
+  confidence_threshold: 0.75
+  verification_required_for: [get_billing]
+  allowed_tools: [verify_demo_customer, get_billing, create_handoff]
+intents:
+  billing_inquiry: collect_customer_id
+  faq: answer_faq
+  human_handoff: handoff
+  unknown: clarify
+states:
+  classify_intent:
+    action: classify_intent
+    transitions:
+      billing_inquiry: collect_customer_id
+      faq: answer_faq
+      human_handoff: handoff
+      unknown: clarify
+  clarify:
+    action: ask_clarification
+    transitions:
+      clarified: classify_intent
+      exhausted: handoff
+  collect_customer_id:
+    action: collect_field
+    field: customer_id
+    transitions:
+      supplied: collect_pin
+      operator_requested: handoff
+  collect_pin:
+    action: collect_secret
+    field: demo_pin
+    transitions:
+      supplied: verify_identity
+      operator_requested: handoff
+  verify_identity:
+    action: verify_demo_customer
+    transitions:
+      verified: get_billing
+      retry: collect_customer_id
+      locked: handoff
+  get_billing:
+    action: get_billing
+    requires_verified_identity: true
+    transitions:
+      found: explain_bill
+      not_found: handoff
+      error: handoff
+  explain_bill:
+    action: generate_grounded_response
+    prompt_ref: explain_billing
+    transitions:
+      completed: close
+      operator_requested: handoff
+  answer_faq:
+    action: answer_approved_faq
+    transitions:
+      completed: close
+      unsupported: handoff
+  handoff:
+    action: create_handoff
+    terminal: true
+  close:
+    action: close_conversation
+    terminal: true

@@ -1,0 +1,8 @@
+{
+  "comment": "Synthetic demo only. PINs are stored as salted SHA-256 hashes. Demo PINs (documented for local demo only): CUST-1001 -> 1234, CUST-1002 -> 5678, CUST-1003 -> 1234 (no invoice record, for T09).",
+  "customers": [
+    {"customer_id": "CUST-1001", "salt": "demo-salt-cust-1001", "pin_hash": "b07eae1028d8b7aa7c669e7b7367212a98c818fd67b6209664e462cf7b36d47f"},
+    {"customer_id": "CUST-1002", "salt": "demo-salt-cust-1002", "pin_hash": "d5da1f092e1ecf41f9fc7967f3a8fc404bf90f2597aa94c81edc3af4cad1b000"},
+    {"customer_id": "CUST-1003", "salt": "demo-salt-cust-1003", "pin_hash": "18472b27af6e3169104c0d0c9e0745b6b1ae95e1a5aeb9f0eee3cd538dea1d65"}
+  ]
+}

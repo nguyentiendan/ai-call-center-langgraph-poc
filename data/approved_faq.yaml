@@ -1,0 +1,9 @@
+faqs:
+  - id: business_hours
+    keywords: ["営業時間", "何時", "受付時間", "サポート時間"]
+    question: "営業時間は何時ですか？"
+    answer: "Sakura Mobile サポートセンターの受付時間は、平日9時から18時までです（デモ用の架空情報です）。"
+  - id: plan_overview
+    keywords: ["料金プラン", "プラン", "プラン説明"]
+    question: "料金プランを教えてください。"
+    answer: "デモ用プランは、基本料金5,500円のプランをご用意しています。詳細は架空のデモ情報です。"
