@@ -64,6 +64,51 @@ def test_p2_live_public_fee_does_not_call_protected_tools(live_app):
     assert payload["message"].strip()
 
 
+def test_p2_live_verified_multi_intent_uses_protected_and_catalog_tools(live_app):
+    """Identity, billing, current plan, catalog, and a grounded answer. Live model only."""
+    client = TestClient(live_app, raise_server_exceptions=False)
+    created = client.post("/api/v1/conversations")
+    assert created.status_code == 200
+    body = created.json()
+    cid = body["conversation_id"]
+    headers = {"X-Conversation-Token": body["conversation_token"]}
+    tools = live_app.state.service.tools
+    opening = client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"message": "今月の料金が高くなった理由と、今のプラン、安いプランを教えて"},
+        headers=headers,
+    )
+    assert opening.status_code == 200
+    assert tools.calls["get_billing_info"] == 0
+    assert tools.calls["get_current_plan"] == 0
+    asked = client.post(
+        f"/api/v1/conversations/{cid}/messages",
+        json={"message": "CUST-1001"},
+        headers=headers,
+    )
+    assert asked.status_code == 200
+    verified = client.post(
+        f"/api/v1/conversations/{cid}/verify",
+        json={"customer_id": "CUST-1001", "demo_pin": "1234"},
+        headers=headers,
+    )
+    assert verified.status_code == 200
+    payload = verified.json()
+    assert payload["status"] == "ACTIVE"
+    assert payload["workflow_state"] == "respond"
+    assert tools.calls["get_billing_info"] >= 1
+    assert tools.calls["get_current_plan"] >= 1
+    assert tools.calls["search_plan_catalog"] >= 1
+    source_ids = {row["source_id"] for row in payload["sources"]}
+    assert "invoice-2026-10" in source_ids
+    assert "account-plan-standard-5gb" in source_ids
+    assert "plan-mini-1gb" in source_ids
+    compact = payload["message"].replace(",", "")
+    assert "8800円" in compact
+    assert "plan-ultra-50gb" not in payload["message"]
+    assert "99,999" not in payload["message"]
+
+
 def test_p2_live_injection_does_not_read_billing(live_app):
     client = TestClient(live_app, raise_server_exceptions=False)
     created = client.post("/api/v1/conversations")
