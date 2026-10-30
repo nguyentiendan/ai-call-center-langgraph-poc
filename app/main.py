@@ -43,15 +43,29 @@ class RateLimiter:
 
 
 def create_app(workflow_path: Path | None = None, model=None, billing=None,
-               debug_enabled: bool | None = None, rate_limit_per_minute: int | None = None) -> FastAPI:
+               debug_enabled: bool | None = None, rate_limit_per_minute: int | None = None,
+               dev_trace_enabled: bool | None = None, accounts=None, catalog=None,
+               support_faq=None) -> FastAPI:
     cfg = load_workflow(workflow_path or get_workflow_path(), prompt_dir=ROOT / "config/prompts")
     bindings = billing.bindings if billing is not None else TrustedBindings()
     mdl = model or build_model(get_model_provider(), os.environ.get("OPENAI_API_KEY") or None,
                                os.environ.get("OPENAI_MODEL", "gpt-4o-mini"))
     bill = billing or BillingService(ROOT / "data/demo_invoices.json", bindings,
                                      retries=cfg.settings.billing_read_retries)
+    handoff = HandoffService()
+    tools = None
+    if getattr(cfg, "schema_version", 1) == 2:
+        from .services.tools_v2 import AccountService, CatalogService, SupportFaqIndex, ToolRegistry
+
+        accounts = accounts or AccountService(ROOT / "data/customer_plans.json")
+        catalog = catalog or CatalogService(ROOT / "data/plan_catalog.yaml")
+        support_faq = support_faq or SupportFaqIndex(ROOT / "data/support_faq.yaml", cfg.agent.faq_min_relevance)
+        tools = ToolRegistry(bill, accounts, catalog, support_faq, handoff, cfg.agent)
+    if dev_trace_enabled is None:
+        dev_trace_enabled = os.environ.get("ENABLE_DEV_TRACE", "false").lower() == "true"
     svc = ConversationService(cfg, mdl, bill, FaqService(ROOT / "data/approved_faq.yaml"),
-                              HandoffService(), VerificationService(ROOT / "data/demo_customers.json"), bindings)
+                              handoff, VerificationService(ROOT / "data/demo_customers.json"), bindings,
+                              tools=tools, dev_trace=bool(dev_trace_enabled))
     if debug_enabled is None:
         debug_enabled = os.environ.get("DEBUG_ENDPOINT_ENABLED", "false").lower() == "true"
     limiter = RateLimiter(rate_limit_per_minute or int(os.environ.get("RATE_LIMIT_PER_MINUTE", "120")))
@@ -60,8 +74,9 @@ def create_app(workflow_path: Path | None = None, model=None, billing=None,
     app.state.cfg = cfg
     app.state.model_name = getattr(mdl, "name", type(mdl).__name__)
     app.state.debug_enabled = debug_enabled
-    app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:3000", "http://localhost:8080"],
-                       allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(CORSMiddleware, allow_origins=[
+        "http://localhost:3000", "http://localhost:8080", "http://localhost:3010", "http://127.0.0.1:3010",
+    ], allow_methods=["*"], allow_headers=["*"])
 
     @app.exception_handler(Exception)
     async def unhandled(_: Request, exc: Exception):
@@ -85,7 +100,7 @@ def create_app(workflow_path: Path | None = None, model=None, billing=None,
     @app.get("/readiness")
     def readiness():
         return {"status": "ready", "workflow_id": cfg.workflow_id, "model": app.state.model_name,
-                "debug_endpoint": debug_enabled}
+                "debug_endpoint": debug_enabled, "dev_trace": bool(dev_trace_enabled)}
 
     @app.post("/api/v1/conversations")
     def create(request: Request):
@@ -122,6 +137,15 @@ def create_app(workflow_path: Path | None = None, model=None, billing=None,
         except InvalidState:
             raise HTTPException(409, "conversation is not awaiting verification") from None
 
+    @app.get("/api/v1/conversations/{cid}/trace")
+    def trace(cid: str, request: Request, x_conversation_token: str | None = Header(default=None)):
+        """Sanitized tool trace. Off unless ENABLE_DEV_TRACE=true, and still token-scoped."""
+        if not dev_trace_enabled:
+            raise HTTPException(404, "trace endpoint disabled")
+        guard(request, cid, x_conversation_token)
+        events = svc.checkpoint_values(cid).get("trace_events") or []
+        return {"events": [_public_trace(event) for event in events]}
+
     @app.get("/api/v1/conversations/{cid}/debug")
     def debug(cid: str, request: Request, x_conversation_token: str | None = Header(default=None)):
         """Sanitized debug view. Disabled unless DEBUG_ENDPOINT_ENABLED=true (demo only)."""
@@ -135,5 +159,16 @@ def create_app(workflow_path: Path | None = None, model=None, billing=None,
                 "trace": m.get("trace", [])}
 
     return app
+
+def _public_trace(event: dict) -> dict:
+    return {
+        "step": event.get("step"),
+        "tool": event.get("tool"),
+        "policy": event.get("policy"),
+        "duration_ms": event.get("duration_ms"),
+        "outcome": event.get("outcome"),
+        "source_ids": list(event.get("source_ids") or []),
+    }
+
 
 app = create_app()
