@@ -1,0 +1,27 @@
+comment: Fictional Sakura Mobile catalog. Prices are illustrative and are not real offers.
+plans:
+  - source_id: plan-mini-1gb
+    title: さくらのミニ 1GB
+    monthly_yen: 2200
+    data_allowance_gb: 1
+    restrictions: 月間1GBを超えた通信の扱いは別条件です。このデモでは契約変更を実行しません。
+  - source_id: plan-light-3gb
+    title: さくらのライト 3GB
+    monthly_yen: 3300
+    data_allowance_gb: 3
+    restrictions: 月間3GBを超えた場合の従量は別条件です。自動では切り替えません。
+  - source_id: plan-standard-5gb
+    title: さくらの標準 5GB
+    monthly_yen: 5500
+    data_allowance_gb: 5
+    restrictions: デモ用の標準データ容量です。オプション料金はプラン月額に含みません。
+  - source_id: plan-comfort-20gb
+    title: さくらのゆったり 20GB
+    monthly_yen: 7700
+    data_allowance_gb: 20
+    restrictions: 大容量向けの架空プランです。速度制限の有無はこのカタログだけでは断定できません。
+  - source_id: plan-unlimited
+    title: さくらの使い放題
+    monthly_yen: 9900
+    data_allowance_gb: null
+    restrictions: 公平制御のあるベストエフォートです。無制限を保証しません。

@@ -49,6 +49,24 @@ MODEL_PROVIDER=openai OPENAI_API_KEY=... OPENAI_MODEL=gpt-4o-mini docker compose
 
 Without a key the app honestly runs `FakeModel` (see `GET /health`). Structured classifier output is validated; low confidence (<0.75) routes to clarification. Generated amounts are re-validated against billing facts.
 
+## Phase 2 hybrid agent
+
+Phase 1 remains the default. Phase 2 is `config/workflows/support_agent_v2.yaml`. Roll back by unsetting `WORKFLOW_PATH` or pointing it at `config/workflows/billing_v1.yaml`.
+
+```bash
+WORKFLOW_PATH=config/workflows/support_agent_v2.yaml ENABLE_DEV_TRACE=true docker compose up --build
+```
+
+`ENABLE_DEV_TRACE` defaults to false. When it is true, `GET /api/v1/conversations/{id}/trace` returns only step, tool, policy, duration, outcome, and source ids, and still requires the conversation token. `nginx/nginx.prod.conf` does not publish that route.
+
+Offline tests use `FakeModel`, which chooses tools through the same LangGraph loop as OpenAI. It is not a live-model result. Live tool-calling is separate:
+
+```bash
+RUN_LIVE_LLM=1 uv run pytest tests_live/test_phase2_openai.py -v
+```
+
+Demo prompts: `今月の料金が高くなった理由と安いプランを教えて` (verify with `CUST-1001` / PIN `1234` in the dedicated field), `プラン変更の手数料は？` (no verification), `オペレーターに代わってください` (one mock ticket). A failed tool ends in a safe sentence or handoff; the chat does not invent an amount. Details, traces, and limits are in `docs/phase2_implementation_report.md`.
+
 ## Layout
 
 `app/` FastAPI + workflow + services · `config/` YAML workflows/prompts · `data/` synthetic fixtures (salted PIN hashes only) · `frontend/` Next.js 16 · `nginx/` reverse proxy · `tests/` pytest suite · `docs/` decisions, scenarios, transcripts, implementation report.

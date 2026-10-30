@@ -25,3 +25,21 @@ class CallState(TypedDict, total=False):
     _turn_entry_state: str
     _last_node: str
     _outcome: str
+    agent_query: str
+    pending_tasks: list
+    pending_intents: list
+    agent_iterations: int
+    tool_call_count: int
+    consecutive_denials: int
+    tool_results: list
+    evidence: list
+    sources: list
+    agent_status: str
+    trace_events: list
+    errors: list
+    pin_rejected: bool
+    pin_notice: bool
+    planner_decision: dict
+    authorized_call: dict
+    _agent_route: str
+    workflow_version: int

@@ -1,0 +1,32 @@
+{
+  "comment": "Fictional current plans and usage for demo customers. Amounts match the Phase 1 invoice base fees. Not real accounts.",
+  "accounts": {
+    "CUST-1001": {
+      "plan_id": "plan-standard-5gb",
+      "name": "さくらの標準 5GB",
+      "monthly_yen": 5500,
+      "data_allowance_gb": 5,
+      "usage_gb": 8.2,
+      "options_yen": 1100,
+      "source_id": "account-plan-standard-5gb"
+    },
+    "CUST-1002": {
+      "plan_id": "plan-standard-5gb",
+      "name": "さくらの標準 5GB",
+      "monthly_yen": 5500,
+      "data_allowance_gb": 5,
+      "usage_gb": 2.0,
+      "options_yen": 1100,
+      "source_id": "account-plan-standard-5gb"
+    },
+    "CUST-1003": {
+      "plan_id": "plan-light-3gb",
+      "name": "さくらのライト 3GB",
+      "monthly_yen": 3300,
+      "data_allowance_gb": 3,
+      "usage_gb": 1.0,
+      "options_yen": 0,
+      "source_id": "account-plan-light-3gb"
+    }
+  }
+}

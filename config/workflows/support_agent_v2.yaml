@@ -1,0 +1,89 @@
+# Phase 2 hybrid agent. schema_version 2 is authoritative.
+# Transitions use the same outcome keys as the runtime (verified == on_verified).
+schema_version: 2
+version: 2
+workflow_id: telecom_support_agent_v2
+locale: ja-JP
+initial_state: classify
+settings:
+  max_verification_attempts: 3
+  max_clarifications: 1
+  billing_read_retries: 1
+  confidence_threshold: 0.75
+  verification_required_for: [get_billing_info, get_current_plan]
+agent:
+  max_tool_calls_per_turn: 5
+  max_agent_iterations: 6
+  max_retry_per_tool: 1
+  max_consecutive_policy_denials: 2
+  timeout_seconds_per_tool: 5
+  faq_min_relevance: 0.65
+  prompts:
+    planner: config/prompts/agent_planner_v2.yaml
+    answer: config/prompts/grounded_answer_v2.yaml
+    clarify: config/prompts/clarify_v2.yaml
+    scope: config/prompts/scope_classifier_v2.yaml
+policies:
+  public_support:
+    allowed_tools: [search_faq, search_plan_catalog, request_handoff]
+    requires_verified_customer: false
+  verified_support:
+    allowed_tools: [search_faq, search_plan_catalog, get_billing_info, get_current_plan, request_handoff]
+    requires_verified_customer: true
+states:
+  classify:
+    kind: router
+    transitions:
+      public: support_agent_public
+      protected: collect_customer_id
+      mixed: collect_customer_id
+      protected_verified: support_agent_protected
+      mixed_verified: support_agent_protected
+      handoff: human_handoff
+      unclear: clarify
+  clarify:
+    kind: clarification
+    transitions:
+      clarified: classify
+      exhausted: human_handoff
+  collect_customer_id:
+    kind: collect_field
+    transitions:
+      supplied: collect_pin
+      operator_requested: human_handoff
+  collect_pin:
+    kind: collect_secret
+    transitions:
+      supplied: verify_identity
+      operator_requested: human_handoff
+  verify_identity:
+    kind: identity_verification
+    transitions:
+      verified: support_agent_protected
+      retry: collect_customer_id
+      locked: human_handoff
+  support_agent_public:
+    kind: agent_subgraph
+    policy: public_support
+    transitions:
+      success: validate_response
+      clarify: validate_response
+      handoff: human_handoff
+      failure: human_handoff
+  support_agent_protected:
+    kind: agent_subgraph
+    policy: verified_support
+    transitions:
+      success: validate_response
+      clarify: validate_response
+      handoff: human_handoff
+      failure: human_handoff
+  validate_response:
+    kind: response_guardrail
+    transitions:
+      success: respond
+      failure: human_handoff
+  respond:
+    kind: response
+  human_handoff:
+    kind: handoff

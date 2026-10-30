@@ -1,6 +1,7 @@
 """API-boundary conversation service. Owns meta store; PIN never enters the graph."""
 import hashlib
 import hmac
+import re
 import secrets
 import uuid
 
@@ -26,10 +27,20 @@ class CustomerMismatch(ValueError):
 
 class ConversationService:
     def __init__(self, cfg: WorkflowConfig, model, billing: BillingService, faq: FaqService,
-                 handoff: HandoffService, verification: VerificationService, bindings):
+                 handoff: HandoffService, verification: VerificationService, bindings, tools=None,
+                 dev_trace: bool = False):
         self.cfg = cfg
-        self.graph = build_graph(cfg, Deps(model=model, billing=billing, faq=faq, handoff=handoff, bindings=bindings))
         self.billing, self.verification, self.bindings = billing, verification, bindings
+        self.handoff = handoff
+        self.tools = tools
+        self.dev_trace = dev_trace
+        deps = Deps(model=model, billing=billing, faq=faq, handoff=handoff, bindings=bindings)
+        if getattr(cfg, "schema_version", 1) == 2:
+            from ..workflow.compiler_v2 import build_graph_v2
+
+            self.graph = build_graph_v2(cfg, deps, tools)
+        else:
+            self.graph = build_graph(cfg, deps)
         self.meta: dict[str, dict] = {}
 
     def create(self) -> dict:
@@ -63,7 +74,8 @@ class ConversationService:
                       "required_input": v.get("required_input"), "handoff_ticket_id": v.get("handoff_ticket_id"),
                       "intent": v.get("intent"), "intent_confidence": v.get("intent_confidence"),
                       "pending_customer_id": v.get("pending_customer_id"),
-                      "trace": v.get("trace", []), "response": v.get("response_text")})
+                      "trace": v.get("trace", []), "response": v.get("response_text"),
+                      "sources": v.get("sources") or [], "agent_status": v.get("agent_status")})
         return m
 
     def _invoke(self, cid: str, payload: dict) -> dict:
@@ -83,8 +95,11 @@ class ConversationService:
         if m["status"] in ("CLOSED", "HANDOFF"):
             raise ConversationClosed(cid)
         entry = m["workflow_state"]
+        pin_rejected = getattr(self.cfg, "schema_version", 1) == 2 and bool(re.fullmatch(r"\d{4}", message.strip()))
+        if pin_rejected:
+            message = ""
         out = self._invoke(cid, {"conversation_id": cid, "turn_message": message, "turn_kind": "message",
-                                 "_turn_entry_state": entry, "current_state": entry})
+                                 "_turn_entry_state": entry, "current_state": entry, "pin_rejected": pin_rejected})
         return self._response(cid, out)
 
     def verify(self, cid: str, customer_id: str, demo_pin: str) -> dict:
@@ -112,6 +127,13 @@ class ConversationService:
         return self._response(cid, out)
 
     def _response(self, cid: str, m: dict) -> dict:
-        return {"conversation_id": cid, "status": m["status"], "workflow_state": m["workflow_state"],
+        body = {"conversation_id": cid, "status": m["status"], "workflow_state": m["workflow_state"],
                 "message": m.get("response") or "", "required_input": m.get("required_input"),
                 "handoff_ticket_id": m.get("handoff_ticket_id"), "intent": m.get("intent")}
+        if getattr(self.cfg, "schema_version", 1) == 2:
+            body["workflow_version"] = 2
+            body["agent_status"] = m.get("agent_status")
+            body["sources"] = m.get("sources") or []
+            body["handoff_ticket"] = m.get("handoff_ticket_id")
+            body["developer_trace_available"] = bool(self.dev_trace)
+        return body

@@ -1,3 +1,7 @@
+import os
+
+os.environ["LANGCHAIN_TRACING_V2"] = "false"
+os.environ["LANGSMITH_TRACING"] = "false"
 
 import pytest
 from fastapi.testclient import TestClient
