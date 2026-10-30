@@ -14,7 +14,7 @@ This is a demo. It is not a production support system.
 | M3 UI and API | `27453ef` | Citations, dev trace UI, P2-20–P2-30 tests, two Playwright tests |
 | M4 verification | `dc46482` | Live OpenAI tests, Docker smoke, this report |
 | Hardening | `c65eea6` `fe6af16` `1d11e2e` `02569e4` `7dd9efd` | Grounding, one handoff ticket, tool deadline, lexical retrieval, scope prompt, live multi-intent |
-| Cleanup | recorded below | `selection_origin` on traces, mixed-plan grounding, timeout limitation |
+| Cleanup | `e254cab` | `selection_origin` on traces, mixed-plan grounding, timeout limitation |
 
 ## How to run
 
@@ -119,7 +119,7 @@ The live planner is still the model. If it returns a schema the server rejects, 
 
 ## Cleanup on 2026-10-30
 
-PR #1 head before this cleanup was `783eadcf8fd4cb71060055e3b4f8de821f7dfd1d` (`783eadc`). That SHA already contained every hardening commit from `c65eea6` through `783eadc`. The cleanup commit SHA is filled in after this file is committed.
+PR #1 head before this cleanup was `783eadcf8fd4cb71060055e3b4f8de821f7dfd1d` (`783eadc`). That SHA already contained every hardening commit from `c65eea6` through `783eadc`. The cleanup implementation is `e254cab`. It is local until pushed; PR #1 stays at `783eadc` until then.
 
 | Check | Result |
 |---|---|
