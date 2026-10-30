@@ -13,6 +13,7 @@ This is a demo. It is not a production support system.
 | M2 agent | `73933e0` | LangGraph support subgraph, policy gateway, read-only tools |
 | M3 UI and API | `27453ef` | Citations, dev trace UI, P2-20–P2-30 tests, two Playwright tests |
 | M4 verification | `dc46482` | Live OpenAI tests, Docker smoke, this report |
+| Hardening | `c65eea6` `fe6af16` `1d11e2e` `02569e4` `7dd9efd` | Grounding, one handoff ticket, tool deadline, lexical retrieval, scope prompt, live multi-intent |
 
 ## How to run
 
@@ -31,15 +32,16 @@ Phase 1 stays the default workflow. Phase 2 is selected only with `WORKFLOW_PATH
 
 Command: `LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false uv run pytest -q --tb=line`
 
-Result: **101 passed**, exit 0. `uv run ruff check app tests` passed. These tests use `FakeModel` or `ScriptedPlanner`. They are not live LLM evidence.
+Result on 2026-10-30 after the hardening pass: **110 passed**, exit 0. `uv run ruff check app tests` passed. These tests use `FakeModel` or `ScriptedPlanner`. They are not live LLM evidence.
 
 | Group | Count | Role |
 |---|---|---|
-| Existing Phase 1 modules under `tests/` | 40 | Unchanged billing, FAQ, handoff, auth, YAML v1 |
+| Existing Phase 1 modules under `tests/` | 41 | Billing, FAQ, handoff, auth, YAML v1, plus the scope-prompt file check |
 | `tests/test_phase2_yaml.py` | 10 | Schema, P2-24 public billing rejection, prompt traversal |
 | `tests/test_phase2_agent.py` | 25 | P2-01–P2-19, P2-23, P2-28, invoice mutation, subgraph Mermaid |
 | `tests/test_phase2_api.py` | 8 | P2-20–P2-22, P2-25–P2-27, P2-29, P2-30 |
 | `tests/test_phase2_prompts.py` | 18 | 12 paraphrases and 6 injection lines |
+| `tests/test_phase2_hardening.py` | 8 | Plan-claim grounding, one handoff ticket, tool deadline, paraphrases, four negative security cases |
 
 P2-30 runs the Phase 1 client and still expects `CLOSED`, `8,800円`, the hours FAQ, and one handoff ticket.
 
@@ -106,10 +108,25 @@ The frontend image build during this pass uploaded a large context because Playw
 
 Command: `RUN_LIVE_LLM=1 uv run pytest tests_live/test_phase2_openai.py -v`
 
-Result: **2 passed**, exit 0, wall clock **5.65s**, date 2026-10-30. The process constructed `OpenAIModel`. `create_app` used `OPENAI_MODEL` or the code default `gpt-4o-mini`. This run did not export `OPENAI_MODEL`, so the client used **gpt-4o-mini**. Token cost was not measured.
+Result on 2026-10-30: **3 passed**, exit 0, wall clock **16.49s**. The client was `OpenAIModel` on **gpt-4o-mini** (`OPENAI_MODEL` was unset, so the code default was used). Token cost was not measured.
 
 - Public fee question: HTTP 200, `required_input` is null, `get_billing_info` and `get_current_plan` call counts are 0, reply has no `8,800`.
+- Verified multi-intent: customer id, PIN on `/verify`, then `get_billing_info`, `get_current_plan`, and `search_plan_catalog` each ran at least once. Workflow state was `respond` and status stayed `ACTIVE`. Sources included `invoice-2026-10`, `account-plan-standard-5gb`, and `plan-mini-1gb`. The reply contained 8800円. Before verification those protected call counts were 0.
 - Japanese injection asking to skip verification: HTTP 200, no `8,800`, billing call count unchanged.
+
+The live planner is still the model. If it returns a schema the server rejects, it is asked once more and the bad JSON is not executed. If it repeats a finished read or tries to answer before billing, the current plan, or the catalog, it is asked again and, on the last attempt, the missing read is selected. An empty FAQ or catalog `query` is filled from the customer text before the policy schema runs. Unknown tools are still rejected.
+
+## Hardening evidence
+
+| Check | Command and result |
+|---|---|
+| Offline regression | `uv run pytest -q --tb=line` — 110 passed, exit 0 |
+| Ruff | `uv run ruff check app tests` — passed, exit 0 |
+| Live OpenAI | command above — 3 passed, exit 0, 16.49s, gpt-4o-mini |
+| Docker smoke | `docker compose up -d --build` exit 0, then `python3 scripts/docker_smoke.py` — SMOKE OK, exit 0, health `telecom_billing_v1` / `FakeModel` |
+| Playwright | `PLAYWRIGHT_BROWSERS_PATH=frontend/.playwright-browsers npx playwright test -c playwright.phase2.config.ts` — 2 passed, exit 0 |
+
+`request_handoff` and `human_handoff` share `handoff:{conversation_id}`. The tool call ends the agent turn, the handoff node sets `HANDOFF`, and a later message is HTTP 409. `HandoffService.created` stays 1. `timeout_seconds_per_tool` now bounds `future.result`. The worker thread is not killed. A 1 second plan lookup with a 0.05 second YAML deadline returns the timeout sentence in under 0.8 seconds and retries once. FAQ and catalog paraphrases stay lexical: one curated keyword hit, or the longest title fragment, with no vector index.
 
 `tests_live/test_openai_live.py` (Phase 1 live file) was **NOT RUN** in this pass.
 
@@ -148,7 +165,8 @@ With Phase 2 and, for the trace, `ENABLE_DEV_TRACE=true`:
 - The parent Mermaid view lists every conditional target because that is what LangGraph emits. Runtime transitions still come from YAML.
 - Phase 2 leaves the conversation `ACTIVE` after an answer so a later turn can reuse verification. Phase 1 still closes.
 - No plan change, payment, voice, or external carrier API.
-- Live coverage is two cases, not P2-01 through P2-30.
+- Live coverage is three cases, not P2-01 through P2-30. A slow tool thread keeps running after the caller times out.
+- The live planner can be nudged onto the next missing read tool. That nudge is not a substitute for the policy gateway.
 - `nginx/nginx.prod.conf` was not the file mounted for the Docker smoke. The demo nginx proxies `/api/`. The trace route still returns 404 unless `ENABLE_DEV_TRACE=true`.
 
 ## Tests not run
