@@ -22,6 +22,7 @@ agent:
     planner: config/prompts/agent_planner_v2.yaml
     answer: config/prompts/grounded_answer_v2.yaml
     clarify: config/prompts/clarify_v2.yaml
+    scope: config/prompts/scope_classifier_v2.yaml
 policies:
   public_support:
     allowed_tools: [search_faq, search_plan_catalog, request_handoff]

@@ -75,6 +75,7 @@ class PromptRefs(BaseModel):
     planner: str
     answer: str
     clarify: str
+    scope: str = "config/prompts/scope_classifier_v2.yaml"
 
 
 class AgentLimits(BaseModel):
@@ -219,6 +220,7 @@ def _hash_prompts(cfg: WorkflowV2Config, prompt_dir: Path) -> dict[str, str]:
         ("planner", cfg.agent.prompts.planner),
         ("answer", cfg.agent.prompts.answer),
         ("clarify", cfg.agent.prompts.clarify),
+        ("scope", cfg.agent.prompts.scope),
     ):
         data = resolve_prompt(ref, prompt_dir).read_bytes()
         hashes[label] = hashlib.sha256(data).hexdigest()
@@ -270,7 +272,12 @@ def _validate(cfg: WorkflowV2Config, prompt_dir: Path) -> None:
     _require_identity(cfg)
     _reject_public_edge_into_protected(cfg)
     _require_reachable_handoff(cfg)
-    for ref in (cfg.agent.prompts.planner, cfg.agent.prompts.answer, cfg.agent.prompts.clarify):
+    for ref in (
+        cfg.agent.prompts.planner,
+        cfg.agent.prompts.answer,
+        cfg.agent.prompts.clarify,
+        cfg.agent.prompts.scope,
+    ):
         resolve_prompt(ref, prompt_dir)
 
 

@@ -27,7 +27,7 @@ def test_phase2_workflow_loads_and_hashes_prompts():
     assert cfg.workflow_id == "telecom_support_agent_v2"
     assert cfg.policies["public_support"].requires_verified_customer is False
     assert "get_billing_info" not in cfg.policies["public_support"].allowed_tools
-    assert set(cfg.prompt_hashes) == {"planner", "answer", "clarify"}
+    assert set(cfg.prompt_hashes) == {"planner", "answer", "clarify", "scope"}
     assert all(len(v) == 64 for v in cfg.prompt_hashes.values())
 
 
