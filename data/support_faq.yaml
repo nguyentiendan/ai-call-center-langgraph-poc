@@ -2,11 +2,11 @@ comment: Curated fictional FAQ. Not a real tariff. Untrusted entries must not gr
 faqs:
   - source_id: faq-plan-change-fee
     title: プラン変更手数料
-    keywords: ["手数料", "プラン変更"]
+    keywords: ["手数料", "プラン変更", "事務費用"]
     answer: プラン変更の手数料はかかりません（架空のデモ情報です）。変更そのものはこのチャットでは実行されません。
   - source_id: faq-business-hours
     title: 受付時間
-    keywords: ["営業時間", "受付時間"]
+    keywords: ["営業時間", "受付時間", "何時", "窓口"]
     answer: サポート受付は平日9時から18時までです（架空のデモ情報です）。
   - source_id: faq-data-overage
     title: データ超過

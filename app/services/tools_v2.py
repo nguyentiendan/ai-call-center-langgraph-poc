@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import json
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import yaml
@@ -29,7 +31,6 @@ class CatalogService:
         self.plans = list(data.get("plans") or [])
 
     def search(self, query: str, min_gb: int | None = None, max_price_yen: int | None = None) -> list[dict]:
-        del query  # catalog filters are structured; the query is not executed as code
         found: list[dict] = []
         for plan in self.plans:
             allowance = plan.get("data_allowance_gb")
@@ -38,7 +39,7 @@ class CatalogService:
             if max_price_yen is not None and plan["monthly_yen"] > max_price_yen:
                 continue
             found.append(dict(plan))
-        found.sort(key=lambda plan: plan["monthly_yen"])
+        found.sort(key=lambda plan: (-_title_overlap(query, plan.get("title") or ""), plan["monthly_yen"]))
         return found
 
 
@@ -53,6 +54,9 @@ class AccountService:
         self.attempts += 1
         if self.fail_mode == "timeout":
             raise ToolTimeout("simulated plan timeout")
+        if self.fail_mode == "slow":
+            time.sleep(1.0)
+            raise ToolTimeout("slow plan lookup")
         row = self.accounts.get(customer_id)
         if row is None:
             raise ToolNotFound(customer_id)
@@ -88,11 +92,21 @@ class SupportFaqIndex:
         return snippets, withheld
 
 
+def _title_overlap(query: str, title: str) -> int:
+    """Longest title fragment that appears in the query. Lexical only."""
+    best = 0
+    for size in range(2, len(title) + 1):
+        for start in range(len(title) - size + 1):
+            if title[start:start + size] in (query or ""):
+                best = size
+    return best
+
+
 def _score(query: str, keywords: list[str]) -> float:
     if not keywords:
         return 0.0
     hits = sum(1 for keyword in keywords if keyword and keyword in (query or ""))
-    return hits / len(keywords)
+    return 1.0 if hits else 0.0
 
 
 def _untrusted(text: str) -> bool:
@@ -140,9 +154,13 @@ class ToolRegistry:
         self.calls[name] = self.calls.get(name, 0) + 1
         self.order.append(name)
         tries = int(self.limits.max_retry_per_tool) + 1
+        seconds = float(self.limits.timeout_seconds_per_tool)
         for attempt in range(tries):
             try:
-                return self._once(name, arguments, conversation_id, verified_customer_id)
+                return self._within_deadline(
+                    lambda: self._once(name, arguments, conversation_id, verified_customer_id),
+                    seconds,
+                )
             except (ToolTimeout, BillingUnavailable):
                 if attempt == tries - 1:
                     return _err(name, "timeout")
@@ -151,6 +169,19 @@ class ToolRegistry:
             except (ToolDenied, BillingAccessDenied):
                 return _err(name, "denied")
         return _err(name, "unavailable")
+
+    def _within_deadline(self, fn, seconds: float):
+        """Stop waiting after timeout_seconds_per_tool. A slow thread is not killed."""
+        pool = ThreadPoolExecutor(max_workers=1)
+        future = pool.submit(fn)
+        try:
+            return future.result(timeout=seconds)
+        except TimeoutError as exc:
+            if future.done():
+                return future.result()
+            raise ToolTimeout("tool exceeded timeout_seconds_per_tool") from exc
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _once(self, name: str, arguments: dict, conversation_id: str, verified_customer_id: str | None) -> dict:
         if name == "search_faq":
