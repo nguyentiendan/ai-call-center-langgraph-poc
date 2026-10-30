@@ -150,13 +150,27 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
         evidence = list(state.get("evidence") or [])
         if result["outcome"] == "ok":
             evidence.append(result)
-        return {
-            "_agent_route": "plan",
+        observed = {
             "tool_results": tool_results,
             "evidence": evidence,
             "tool_call_count": int(state.get("tool_call_count") or 0) + 1,
             "trace_events": events,
             "verified_customer_id": verified,
+        }
+        if tool_name == "request_handoff" and result["outcome"] == "ok":
+            reason = (call.get("arguments") or {}).get("reason_code") or "agent_requested"
+            return {
+                **observed,
+                "_agent_route": "finish",
+                "_outcome": "handoff",
+                "response_text": "担当者への引き継ぎを依頼しました。",
+                "agent_status": "handoff",
+                "handoff_reason": reason,
+                "sources": [],
+            }
+        return {
+            "_agent_route": "plan",
+            **observed,
         }
 
     def finish(state: dict) -> dict:
