@@ -22,3 +22,8 @@ button:disabled { opacity: .45; cursor: default; }
 .side dl { display: grid; grid-template-columns: 96px 1fr; font-size: 13px; gap: 6px; }
 .side dt { color: #50616a; } .side dd { margin: 0; word-break: break-all; }
 .trace { font-size: 12px; padding-left: 18px; line-height: 1.7; }
+.sources { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.sources span { font-size: 11px; background: #fff; color: #0f766e; border: 1px solid #b7d4cf; padding: 1px 6px; }
+.devtrace table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 8px; }
+.devtrace th, .devtrace td { border-bottom: 1px solid #e1e7e9; text-align: left; padding: 3px; }
+.devtrace pre { white-space: pre-wrap; font-size: 10px; color: #50616a; }

@@ -5,8 +5,12 @@ services:
       MODEL_PROVIDER: ${MODEL_PROVIDER:-fake}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-4o-mini}
+      # Default stays on the Phase 1 workflow. Set support_agent_v2.yaml to enable Phase 2.
+      WORKFLOW_PATH: ${WORKFLOW_PATH:-config/workflows/billing_v1.yaml}
       # Demo-only: enables the sanitized /debug endpoint. Keep false outside local demos.
       DEBUG_ENDPOINT_ENABLED: ${DEBUG_ENDPOINT_ENABLED:-true}
+      # Sanitized agent trace. Off unless a local demo explicitly opts in.
+      ENABLE_DEV_TRACE: ${ENABLE_DEV_TRACE:-false}
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-120}
     expose: ["8000"]
     healthcheck:

@@ -1,9 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-type Turn = { role: "user" | "assistant"; text: string };
-type ApiResp = { conversation_id: string; status: string; workflow_state: string | null; message: string; required_input: string | null; handoff_ticket_id: string | null; intent?: string | null };
+type Source = { source_id: string; title: string };
+type Turn = { role: "user" | "assistant"; text: string; sources?: Source[] };
+type ApiResp = { conversation_id: string; status: string; workflow_state: string | null; message: string; required_input: string | null; handoff_ticket_id: string | null; intent?: string | null; sources?: Source[]; workflow_version?: number };
 type Debug = { workflow_state: string; intent: string | null; intent_confidence: number | null; trace: { state: string; outcome: string }[] } | null;
+type TraceRow = { step: number; tool: string; policy: string; duration_ms: number; outcome: string; source_ids: string[] };
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -25,28 +27,49 @@ export default function Home() {
   const [debug, setDebug] = useState<Debug>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [devTrace, setDevTrace] = useState(false);
+  const [traceRows, setTraceRows] = useState<TraceRow[]>([]);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   async function refreshDebug(id: string) {
     try { const r = await fetch(`${API}/api/v1/conversations/${id}/debug`, { headers: convToken ? { "X-Conversation-Token": convToken } : {} }); setDebug(r.ok ? await r.json() : null); } catch { setDebug(null); }
+  }
+  async function loadReadiness() {
+    try {
+      const r = await fetch(`${API}/readiness`);
+      if (!r.ok) return;
+      const data = await r.json();
+      setDevTrace(Boolean(data.dev_trace));
+    } catch { setDevTrace(false); }
+  }
+  async function loadTrace(id: string) {
+    try {
+      const r = await fetch(`${API}/api/v1/conversations/${id}/trace`, { headers: convToken ? { "X-Conversation-Token": convToken } : {} });
+      if (!r.ok) { setTraceRows([]); return; }
+      const data = await r.json();
+      setTraceRows(Array.isArray(data.events) ? data.events : []);
+    } catch { setTraceRows([]); }
   }
   async function start() {
     setBusy(true); setError("");
     try {
       const r = await post("/api/v1/conversations"); convToken = r.conversation_token ?? "";
-      setCid(r.conversation_id); setState(r); setTurns([{ role: "assistant", text: r.message }]);
+      setCid(r.conversation_id); setState(r); setTurns([{ role: "assistant", text: r.message }]); setTraceRows([]);
+      await loadReadiness();
       await refreshDebug(r.conversation_id);
     } catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
   async function send() {
     if (!cid || !input.trim()) return;
     const text = input.trim(); setInput(""); setTurns((t) => [...t, { role: "user", text }]); setBusy(true); setError("");
-    try { const r = await post(`/api/v1/conversations/${cid}/messages`, { message: text }); setState(r); setTurns((t) => [...t, { role: "assistant", text: r.message }]); await refreshDebug(cid); }
+    try { const r = await post(`/api/v1/conversations/${cid}/messages`, { message: text }); setState(r); setTurns((t) => [...t, { role: "assistant", text: r.message, sources: r.sources }]); if (devTrace) await loadTrace(cid); await refreshDebug(cid); }
     catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
   async function verify() {
     if (!cid || !pin) return;
     setBusy(true); setError("");
-    try { const r = await post(`/api/v1/conversations/${cid}/verify`, { customer_id: customerId, demo_pin: pin }); setPin(""); setState(r); setTurns((t) => [...t, { role: "assistant", text: r.message }]); await refreshDebug(cid); }
+    try { const r = await post(`/api/v1/conversations/${cid}/verify`, { customer_id: customerId, demo_pin: pin }); setPin(""); setState(r); setTurns((t) => [...t, { role: "assistant", text: r.message, sources: r.sources }]); if (devTrace) await loadTrace(cid); await refreshDebug(cid); }
     catch (e) { setError(String(e)); } finally { setBusy(false); }
   }
 
@@ -57,13 +80,20 @@ export default function Home() {
     <main className="shell">
       <header className="topbar">
         <div><strong>Sakura Mobile</strong><span>サポートチャット（デモ）</span></div>
-        <button onClick={start} disabled={busy}>新しい問い合わせ</button>
+        <button onClick={start} disabled={!mounted || busy}>新しい問い合わせ</button>
       </header>
       <section className="layout">
         <div className="chat panel">
           <div className="messages">
             {turns.length === 0 && <p className="hint">「新しい問い合わせ」を押して開始してください。例: 今月の携帯料金が先月より高いのですが。</p>}
-            {turns.map((t, i) => <div key={i} className={`bubble ${t.role}`}>{t.text}</div>)}
+            {turns.map((t, i) => (
+              <div key={i} className={`bubble ${t.role}`}>
+                {t.text}
+                {t.sources && t.sources.length > 0 && (
+                  <div className="sources">{t.sources.map((s) => <span key={s.source_id}>{s.source_id}</span>)}</div>
+                )}
+              </div>
+            ))}
           </div>
           <div className="composer">
             <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && send()} placeholder="メッセージを入力（PINは書かないでください）" disabled={!cid || closed || busy} />
@@ -90,6 +120,17 @@ export default function Home() {
           </dl>
           <h3>トレース</h3>
           <ol className="trace">{(debug?.trace ?? []).map((t, i) => <li key={i}>{t.state} → {t.outcome}</li>)}</ol>
+          {devTrace && cid && (
+            <div className="devtrace">
+              <h3>開発者トレース</h3>
+              <button type="button" onClick={() => loadTrace(cid)} disabled={busy}>更新</button>
+              <table>
+                <thead><tr><th>step</th><th>tool</th><th>policy</th><th>ms</th><th>outcome</th><th>source_ids</th></tr></thead>
+                <tbody>{traceRows.map((row) => <tr key={row.step}><td>{row.step}</td><td>{row.tool}</td><td>{row.policy}</td><td>{row.duration_ms}</td><td>{row.outcome}</td><td>{(row.source_ids || []).join(", ")}</td></tr>)}</tbody>
+              </table>
+              <pre>{JSON.stringify(traceRows)}</pre>
+            </div>
+          )}
         </aside>
       </section>
     </main>
