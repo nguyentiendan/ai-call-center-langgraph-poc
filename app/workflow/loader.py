@@ -85,8 +85,18 @@ def load_workflow(path: str | Path, prompt_dir: str | Path | None = None) -> Wor
     raw: Any = yaml.safe_load(p.read_text(encoding="utf-8"))
     if not isinstance(raw, dict):
         raise WorkflowValidationError("workflow YAML must be a mapping")
-    if raw.get("schema_version") != 1:
-        raise WorkflowValidationError(f"unsupported schema_version: {raw.get('schema_version')!r}")
+    version = raw.get("schema_version", raw.get("version"))
+    if version == 2:
+        from .loader_v2 import WorkflowValidationError as V2Error
+        from .loader_v2 import load_workflow_v2
+
+        prompts = Path(prompt_dir) if prompt_dir else (p.parent.parent / "prompts")
+        try:
+            return load_workflow_v2(raw, p, prompts)
+        except V2Error as exc:
+            raise WorkflowValidationError(str(exc)) from exc
+    if version != 1:
+        raise WorkflowValidationError(f"unsupported schema_version: {raw.get('schema_version', raw.get('version'))!r}")
     try:
         cfg = WorkflowConfig.model_validate(raw)
     except Exception as e:  # pydantic validation -> clear startup error
