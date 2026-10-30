@@ -1,7 +1,14 @@
-"""Answers may mention a yen amount only when a successful tool result listed it."""
+"""Answers may mention amounts, plans, usage, and restrictions only from successful tool results."""
 from __future__ import annotations
 
+import re
+
 from .planner import is_mutation, mentioned_customers, wants_catalog, wants_faq
+
+_PLAN_ID_RE = re.compile(r"plan-[a-z0-9]+(?:-[a-z0-9]+)*")
+_GB_RE = re.compile(r"(\d+(?:\.\d+)?)\s*GB")
+_PLAN_NAME_RE = re.compile(r"さくらの[^\s、。（）\n]{1,24}")
+_RESTRICTION_RE = re.compile(r"[^。\n]*制限[^。\n]*")
 
 
 def allowed_amounts(evidence: list[dict]) -> set[int]:
@@ -18,6 +25,62 @@ def amounts_grounded(text: str, evidence: list[dict]) -> bool:
     from .model import extract_amounts
 
     return all(amount in allowed_amounts(evidence) for amount in extract_amounts(text))
+
+
+def _fact_rows(evidence: list[dict]) -> list[dict]:
+    rows: list[dict] = []
+    for item in evidence:
+        if item.get("outcome") != "ok":
+            continue
+        data = item.get("data") or {}
+        if item.get("tool") == "search_plan_catalog":
+            rows.extend(dict(plan) for plan in data.get("plans") or [])
+        elif item.get("tool") == "get_current_plan":
+            rows.append(dict(data))
+    return rows
+
+
+def claims_grounded(text: str, evidence: list[dict]) -> bool:
+    """Reject plan ids, names, allowances, usage, prices, and restrictions that no tool returned."""
+    if not amounts_grounded(text, evidence):
+        return False
+    ids: set[str] = set()
+    names: set[str] = set()
+    gigabytes: set[float] = set()
+    restrictions: set[str] = set()
+    for item in evidence:
+        if item.get("outcome") != "ok":
+            continue
+        for source_id in item.get("source_ids") or []:
+            ids.add(str(source_id))
+    for row in _fact_rows(evidence):
+        for key in ("plan_id", "source_id"):
+            if row.get(key):
+                ids.add(str(row[key]))
+        for key in ("name", "title"):
+            if row.get(key):
+                names.add(str(row[key]))
+        for key in ("data_allowance_gb", "usage_gb"):
+            if row.get(key) is not None:
+                gigabytes.add(float(row[key]))
+        if row.get("restrictions"):
+            restrictions.add(str(row["restrictions"]))
+    body = text or ""
+    for plan_id in _PLAN_ID_RE.findall(body):
+        if plan_id not in ids and not any(plan_id in source_id for source_id in ids):
+            return False
+    for raw in _GB_RE.findall(body):
+        value = float(raw)
+        if not any(abs(value - known) < 1e-6 for known in gigabytes):
+            return False
+    for name in _PLAN_NAME_RE.findall(body):
+        if not any(name == allowed or name in allowed for allowed in names):
+            return False
+    for chunk in _RESTRICTION_RE.findall(body):
+        piece = chunk.strip()
+        if not any(piece in item or item in piece for item in restrictions):
+            return False
+    return True
 
 
 def collect_sources(evidence: list[dict]) -> list[dict]:

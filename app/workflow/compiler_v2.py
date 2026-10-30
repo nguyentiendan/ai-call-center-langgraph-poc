@@ -3,7 +3,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, StateGraph
 
-from ..services.grounding_v2 import amounts_grounded, collect_sources, fallback_answer
+from ..services.grounding_v2 import claims_grounded, collect_sources, fallback_answer
 from ..services.model import is_operator_request
 from ..services.planner import task_labels
 from .agent_graph import PIN_GUIDANCE, build_agent_subgraph
@@ -165,13 +165,13 @@ def build_graph_v2(cfg, deps, tools):
         query = state.get("agent_query") or ""
         verified = deps.bindings.get(state.get("conversation_id"))
         replaced = False
-        if not amounts_grounded(text, evidence):
+        if not claims_grounded(text, evidence):
             text = deps.model.compose(query, evidence, verified_customer_id=verified)
             replaced = True
-        if not amounts_grounded(text, evidence):
+        if not claims_grounded(text, evidence):
             text = fallback_answer(query, evidence, verified)
             replaced = True
-        if not amounts_grounded(text, evidence):
+        if not claims_grounded(text, evidence):
             return {
                 "current_state": "validate_response",
                 "status": "ACTIVE",
