@@ -52,7 +52,9 @@ class FakeModel:
     def plan(self, query: str, tool_results: list, allowed_tools: list[str], verified_customer_id: str | None = None):
         from .planner import fake_plan
 
-        return fake_plan(query or "", tool_results or [], list(allowed_tools), verified_customer_id)
+        decision = fake_plan(query or "", tool_results or [], list(allowed_tools), verified_customer_id)
+        decision.selection_origin = "workflow"
+        return decision
 
     def compose(self, query: str, evidence: list, verified_customer_id: str | None = None) -> str:
         from .grounding_v2 import fallback_answer
@@ -206,12 +208,19 @@ class OpenAIModel:
                     "search_plan_catalog": "need_catalog_evidence",
                     "search_faq": "need_faq_evidence",
                 }
-                return PlannerDecision(
+                decision = PlannerDecision(
                     decision="call_tool", tool=tool, arguments=arguments, reason_code=reasons[tool],
                 )
-            if decision.decision == "call_tool" and decision.tool in {"search_faq", "search_plan_catalog"}:
-                if not str(decision.arguments.get("query") or "").strip():
-                    decision.arguments["query"] = (query or "料金プラン")[:300]
+                # A repeated finished tool is recovery. A missing read the workflow still requires is workflow.
+                decision.selection_origin = "recovery" if repeated else "workflow"
+                return decision
+            if (
+                decision.decision == "call_tool"
+                and decision.tool in {"search_faq", "search_plan_catalog"}
+                and not str(decision.arguments.get("query") or "").strip()
+            ):
+                decision.arguments["query"] = (query or "料金プラン")[:300]
+            decision.selection_origin = "llm"
             return decision
         raise PlannerSchemaError(f"planner output rejected: {type(last_error).__name__}") from last_error
 

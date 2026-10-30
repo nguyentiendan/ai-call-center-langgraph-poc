@@ -5,7 +5,7 @@ type Source = { source_id: string; title: string };
 type Turn = { role: "user" | "assistant"; text: string; sources?: Source[] };
 type ApiResp = { conversation_id: string; status: string; workflow_state: string | null; message: string; required_input: string | null; handoff_ticket_id: string | null; intent?: string | null; sources?: Source[]; workflow_version?: number };
 type Debug = { workflow_state: string; intent: string | null; intent_confidence: number | null; trace: { state: string; outcome: string }[] } | null;
-type TraceRow = { step: number; tool: string; policy: string; duration_ms: number; outcome: string; source_ids: string[] };
+type TraceRow = { step: number; tool: string; policy: string; duration_ms: number; outcome: string; source_ids: string[]; selection_origin?: string };
 
 const API = process.env.NEXT_PUBLIC_API_BASE ?? "";
 
@@ -125,8 +125,8 @@ export default function Home() {
               <h3>開発者トレース</h3>
               <button type="button" onClick={() => loadTrace(cid)} disabled={busy}>更新</button>
               <table>
-                <thead><tr><th>step</th><th>tool</th><th>policy</th><th>ms</th><th>outcome</th><th>source_ids</th></tr></thead>
-                <tbody>{traceRows.map((row) => <tr key={row.step}><td>{row.step}</td><td>{row.tool}</td><td>{row.policy}</td><td>{row.duration_ms}</td><td>{row.outcome}</td><td>{(row.source_ids || []).join(", ")}</td></tr>)}</tbody>
+                <thead><tr><th>step</th><th>tool</th><th>policy</th><th>ms</th><th>outcome</th><th>source_ids</th><th>origin</th></tr></thead>
+                <tbody>{traceRows.map((row) => <tr key={row.step}><td>{row.step}</td><td>{row.tool}</td><td>{row.policy}</td><td>{row.duration_ms}</td><td>{row.outcome}</td><td>{(row.source_ids || []).join(", ")}</td><td>{row.selection_origin || ""}</td></tr>)}</tbody>
               </table>
               <pre>{JSON.stringify(traceRows)}</pre>
             </div>

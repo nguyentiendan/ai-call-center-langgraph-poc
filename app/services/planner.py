@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..workflow.tool_specs import KNOWN_TOOLS
 
@@ -29,10 +29,22 @@ class ScopeResult(BaseModel):
 
 
 class PlannerDecision(BaseModel):
+    """selection_origin is server-owned. Model JSON cannot set it."""
+
+    model_config = ConfigDict(extra="ignore")
     decision: Literal["call_tool", "respond", "clarify", "handoff"]
     tool: str | None = None
     arguments: dict[str, Any] = Field(default_factory=dict)
     reason_code: str
+    selection_origin: Literal["llm", "workflow", "recovery"] = "llm"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_client_origin(cls, value):
+        if isinstance(value, dict):
+            value = dict(value)
+            value.pop("selection_origin", None)
+        return value
 
     @field_validator("reason_code")
     @classmethod

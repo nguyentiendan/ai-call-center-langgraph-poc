@@ -41,7 +41,7 @@ graph TD
 | Billing read | `BillingService.get_billing(conversation_id)` checks the binding again. |
 | PIN | Dedicated `/verify` body. A 4-digit chat message is dropped before graph input on workflow version 2. |
 | Answer amounts | Every `円` amount must appear in successful tool `yen_amounts`. One regenerate, then a deterministic fallback, then handoff. |
-| Trace | Six fields only, token required, `ENABLE_DEV_TRACE` default false. |
+| Trace | Seven fields only: step, tool, policy, duration_ms, outcome, source_ids, selection_origin (`llm`, `workflow`, or `recovery`). Token required. `ENABLE_DEV_TRACE` default false. |
 | Writes | No plan-change, payment, refund, or cancel tool exists. |
 
 Prompt files are hashed at load (`prompt_hashes`) and are not returned by the chat API. FAQ text containing instruction markers is withheld by the FAQ tool instead of being copied into the answer.
@@ -49,3 +49,5 @@ Prompt files are hashed at load (`prompt_hashes`) and are not returned by the ch
 ## Budgets
 
 From `support_agent_v2.yaml`, per turn: 5 tool calls, 6 planner iterations, 1 retry on timeout, 2 consecutive policy denials, 5 second tool timeout setting. The answer composer may run twice when grounding fails. The parent invoke uses recursion limit 25; the subgraph uses 50.
+
+`timeout_seconds_per_tool` stops the caller from waiting. It does not cancel the `ThreadPoolExecutor` thread that is already running. `cancel_futures=True` only drops futures that have not started.

@@ -10,7 +10,7 @@ from app.core.config import ROOT
 from app.services.model import FakeModel
 from app.services.planner import PlannerDecision
 from app.services.tools_v2 import AccountService, CatalogService, SupportFaqIndex
-from tests.conftest import msg, new_conv
+from tests.conftest import headers, msg, new_conv
 from tests.test_phase2_agent import ScriptedPlanner, _verify_flow, v2_client
 
 
@@ -23,6 +23,62 @@ class UngroundedPlanModel(FakeModel):
             "現在のプランは plan-ultra-50gb（さくらの超大容量、データ上限50GB、使用量0.1GB）です。"
             "制限はありません。"
         )
+
+
+def test_model_cannot_spoof_selection_origin():
+    decision = PlannerDecision.model_validate({
+        "decision": "call_tool",
+        "tool": "search_faq",
+        "arguments": {"query": "営業時間"},
+        "reason_code": "need_faq_evidence",
+        "selection_origin": "recovery",
+    })
+    assert decision.selection_origin == "llm"
+    workflow = FakeModel().plan("営業時間は何時ですか？", [], ["search_faq"], None)
+    assert workflow.selection_origin == "workflow"
+
+
+def test_trace_records_workflow_and_recovery_origins():
+    client, _app, _ = v2_client(dev_trace=True)
+    cid = new_conv(client)
+    msg(client, cid, "営業時間は何時ですか？")
+    traced = client.get(f"/api/v1/conversations/{cid}/trace", headers=headers(cid))
+    assert traced.status_code == 200
+    events = traced.json()["events"]
+    assert events and all(event["selection_origin"] == "workflow" for event in events)
+    assert "arguments" not in traced.text and "reason_code" not in traced.text
+
+    scripted = ScriptedPlanner([
+        {"decision": "call_tool", "tool": "search_faq", "arguments": {"query": "営業時間"},
+         "reason_code": "need_faq_evidence", "selection_origin": "recovery"},
+        {"decision": "respond", "reason_code": "sufficient_evidence"},
+    ])
+    client2, _, _ = v2_client(model=scripted, dev_trace=True)
+    cid2 = new_conv(client2)
+    msg(client2, cid2, "営業時間は何時ですか？")
+    recovered = client2.get(f"/api/v1/conversations/{cid2}/trace", headers=headers(cid2)).json()["events"]
+    assert recovered[0]["selection_origin"] == "recovery"
+
+
+def test_mixed_plan_attributes_are_rejected():
+    from app.services.grounding_v2 import claims_grounded
+
+    evidence = [{
+        "tool": "search_plan_catalog",
+        "outcome": "ok",
+        "source_ids": ["plan-mini-1gb", "plan-unlimited"],
+        "yen_amounts": [2200, 9900],
+        "data": {"plans": [
+            {"source_id": "plan-mini-1gb", "title": "さくらのミニ 1GB", "monthly_yen": 2200,
+             "data_allowance_gb": 1, "restrictions": "月間1GBを超えた通信の扱いは別条件です。"},
+            {"source_id": "plan-unlimited", "title": "さくらの使い放題", "monthly_yen": 9900,
+             "data_allowance_gb": None, "restrictions": "無制限を保証しません。"},
+        ]},
+    }]
+    mixed = "さくらのミニ 1GBは月額9,900円です。"
+    consistent = "さくらのミニ 1GBは月額2,200円、データ上限は1GBです。さくらの使い放題（月額9,900円）です。"
+    assert claims_grounded(mixed, evidence) is False
+    assert claims_grounded(consistent, evidence) is True
 
 
 def test_unsupported_plan_claims_are_replaced():

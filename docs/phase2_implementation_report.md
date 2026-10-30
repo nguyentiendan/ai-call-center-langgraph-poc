@@ -14,6 +14,7 @@ This is a demo. It is not a production support system.
 | M3 UI and API | `27453ef` | Citations, dev trace UI, P2-20–P2-30 tests, two Playwright tests |
 | M4 verification | `dc46482` | Live OpenAI tests, Docker smoke, this report |
 | Hardening | `c65eea6` `fe6af16` `1d11e2e` `02569e4` `7dd9efd` | Grounding, one handoff ticket, tool deadline, lexical retrieval, scope prompt, live multi-intent |
+| Cleanup | recorded below | `selection_origin` on traces, mixed-plan grounding, timeout limitation |
 
 ## How to run
 
@@ -32,7 +33,7 @@ Phase 1 stays the default workflow. Phase 2 is selected only with `WORKFLOW_PATH
 
 Command: `LANGSMITH_TRACING=false LANGCHAIN_TRACING_V2=false uv run pytest -q --tb=line`
 
-Result on 2026-10-30 after the hardening pass: **110 passed**, exit 0. `uv run ruff check app tests` passed. These tests use `FakeModel` or `ScriptedPlanner`. They are not live LLM evidence.
+Result on 2026-10-30 after the cleanup: **113 passed**, exit 0. `uv run ruff check app tests` passed. These tests use `FakeModel` or `ScriptedPlanner`. They are not live LLM evidence.
 
 | Group | Count | Role |
 |---|---|---|
@@ -41,7 +42,7 @@ Result on 2026-10-30 after the hardening pass: **110 passed**, exit 0. `uv run r
 | `tests/test_phase2_agent.py` | 25 | P2-01–P2-19, P2-23, P2-28, invoice mutation, subgraph Mermaid |
 | `tests/test_phase2_api.py` | 8 | P2-20–P2-22, P2-25–P2-27, P2-29, P2-30 |
 | `tests/test_phase2_prompts.py` | 18 | 12 paraphrases and 6 injection lines |
-| `tests/test_phase2_hardening.py` | 8 | Plan-claim grounding, one handoff ticket, tool deadline, paraphrases, four negative security cases |
+| `tests/test_phase2_hardening.py` | 11 | Plan-claim grounding, mixed plan attributes, one handoff ticket, tool deadline, paraphrases, trace origins, four negative security cases |
 
 P2-30 runs the Phase 1 client and still expects `CLOSED`, `8,800円`, the hours FAQ, and one handoff ticket.
 
@@ -116,6 +117,20 @@ Result on 2026-10-30: **3 passed**, exit 0, wall clock **16.49s**. The client wa
 
 The live planner is still the model. If it returns a schema the server rejects, it is asked once more and the bad JSON is not executed. If it repeats a finished read or tries to answer before billing, the current plan, or the catalog, it is asked again and, on the last attempt, the missing read is selected. An empty FAQ or catalog `query` is filled from the customer text before the policy schema runs. Unknown tools are still rejected.
 
+## Cleanup on 2026-10-30
+
+PR #1 head before this cleanup was `783eadcf8fd4cb71060055e3b4f8de821f7dfd1d` (`783eadc`). That SHA already contained every hardening commit from `c65eea6` through `783eadc`. The cleanup commit SHA is filled in after this file is committed.
+
+| Check | Result |
+|---|---|
+| Offline | `uv run pytest -q --tb=line` — 113 passed, exit 0 |
+| Ruff | `uv run ruff check app tests` — passed, exit 0 |
+| Live OpenAI | `RUN_LIVE_LLM=1 uv run pytest tests_live/test_phase2_openai.py -v` — 3 passed, exit 0, 15.73s, gpt-4o-mini |
+| Docker | backend image rebuilt, then `python3 scripts/docker_smoke.py` — SMOKE OK, exit 0, `telecom_billing_v1` / `FakeModel`. An earlier attempt during container start returned 502 and is not a pass. |
+| Playwright | `playwright.phase2.config.ts` — 2 passed, exit 0 |
+
+`selection_origin` is one of `llm`, `workflow`, or `recovery`. The public trace still omits arguments, prompts, PIN, and customer id.
+
 ## Hardening evidence
 
 | Check | Command and result |
@@ -144,7 +159,7 @@ The live planner is still the model. If it returns a schema the server rejects, 
 | Budgets | P2-18 stops at 5 calls, or at 2 when the temp YAML says 2 |
 | Session isolation | P2-20; other token gets 401 on messages and trace |
 | Trace off by default | P2-25 returns 404 and the message body has no `trace_events` |
-| Trace on is sanitized | P2-26; only the six public keys |
+| Trace on is sanitized | P2-26; seven public keys, including `selection_origin` |
 | Missing live key | P2-27; `build_model("openai", None)` raises |
 
 ## Manual UI scripts
@@ -165,8 +180,10 @@ With Phase 2 and, for the trace, `ENABLE_DEV_TRACE=true`:
 - The parent Mermaid view lists every conditional target because that is what LangGraph emits. Runtime transitions still come from YAML.
 - Phase 2 leaves the conversation `ACTIVE` after an answer so a later turn can reuse verification. Phase 1 still closes.
 - No plan change, payment, voice, or external carrier API.
-- Live coverage is three cases, not P2-01 through P2-30. A slow tool thread keeps running after the caller times out.
-- The live planner can be nudged onto the next missing read tool. That nudge is not a substitute for the policy gateway.
+- Live coverage is three cases, not P2-01 through P2-30.
+- `timeout_seconds_per_tool` does not cancel a running thread. `ThreadPoolExecutor.shutdown(cancel_futures=True)` only drops futures that have not started. The caller raises `ToolTimeout` and stops waiting. Cancellation is not implemented.
+- The live planner can be nudged onto the next missing read tool. That nudge is not a substitute for the policy gateway. A tool the model named stays `selection_origin=llm` even if an empty FAQ or catalog query is filled. Substituting a missing workflow read is `workflow`. Substituting after the model repeats a finished tool is `recovery`. Offline `FakeModel` tool choices are `workflow`. The model cannot set `selection_origin` itself.
+- Plan prices and allowances are checked against the plan named in that span. A sentence can still mention an invoice total next to a plan name; those invoice amounts are not plan attributes. Attribute pairing does not cover every Japanese paraphrase boundary.
 - `nginx/nginx.prod.conf` was not the file mounted for the Docker smoke. The demo nginx proxies `/api/`. The trace route still returns 404 unless `ENABLE_DEV_TRACE=true`.
 
 ## Tests not run

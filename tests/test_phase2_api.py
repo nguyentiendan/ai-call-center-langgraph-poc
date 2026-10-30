@@ -3,7 +3,7 @@ from app.services.model import build_model
 from tests.conftest import billing_service, headers, make_client, msg, new_conv, to_pin_step, verify
 from tests.test_phase2_agent import v2_client
 
-TRACE_KEYS = {"step", "tool", "policy", "duration_ms", "outcome", "source_ids"}
+TRACE_KEYS = {"step", "tool", "policy", "duration_ms", "outcome", "source_ids", "selection_origin"}
 
 
 def test_p2_20_sessions_and_trace_are_isolated():

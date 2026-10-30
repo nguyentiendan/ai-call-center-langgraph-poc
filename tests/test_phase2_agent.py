@@ -32,7 +32,11 @@ class ScriptedPlanner(FakeModel):
         item = self.decisions.pop(0)
         if item == "BAD":
             raise PlannerSchemaError("invalid planner output")
-        return PlannerDecision.model_validate(item)
+        origin = item.get("selection_origin") if isinstance(item, dict) else None
+        decision = PlannerDecision.model_validate(item)
+        if origin in {"llm", "workflow", "recovery"}:
+            decision.selection_origin = origin
+        return decision
 
 
 class EvilAnswerModel(FakeModel):

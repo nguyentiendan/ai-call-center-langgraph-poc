@@ -171,7 +171,12 @@ class ToolRegistry:
         return _err(name, "unavailable")
 
     def _within_deadline(self, fn, seconds: float):
-        """Stop waiting after timeout_seconds_per_tool. A slow thread is not killed."""
+        """Stop waiting after timeout_seconds_per_tool.
+
+        This does not cancel the running thread. shutdown(cancel_futures=True)
+        only drops futures that have not started. A slow tool keeps running
+        after ToolTimeout is raised.
+        """
         pool = ThreadPoolExecutor(max_workers=1)
         future = pool.submit(fn)
         try:

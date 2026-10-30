@@ -15,6 +15,12 @@ PIN_GUIDANCE = (
     "確認のため、デモ用PINを専用入力欄（確認ボタン）から入力してください。チャット文にはPINを書かないでください。"
 )
 SCHEMA_FALLBACK = "ご依頼を処理できませんでした。別の表現でお試しください。"
+_ORIGINS = frozenset({"llm", "workflow", "recovery"})
+
+
+def _selection_origin(decision: dict) -> str:
+    origin = decision.get("selection_origin")
+    return origin if origin in _ORIGINS else "llm"
 CLARIFY_TEXT = "ご用件は、料金のご確認、プランのご案内、手続きのご説明のどれに近いでしょうか。一つだけ教えてください。"
 
 
@@ -79,6 +85,7 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
         )
         duration_ms = int((time.perf_counter() - started) * 1000)
         events = list(state.get("trace_events") or [])
+        origin = _selection_origin(decision)
         if verdict.allowed:
             events.append({
                 "step": len(events) + 1,
@@ -87,6 +94,7 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
                 "duration_ms": duration_ms,
                 "outcome": "pending",
                 "source_ids": [],
+                "selection_origin": origin,
             })
             return {
                 "_agent_route": "exec",
@@ -101,6 +109,7 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
             "duration_ms": duration_ms,
             "outcome": "denied",
             "source_ids": [],
+            "selection_origin": origin,
         })
         denials = int(state.get("consecutive_denials") or 0) + 1
         if denials >= limits.max_consecutive_policy_denials:
@@ -136,6 +145,7 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
                 "duration_ms": duration_ms,
                 "outcome": "ok" if result["outcome"] == "ok" else result["error"],
                 "source_ids": list(result.get("source_ids") or []),
+                "selection_origin": events[-1].get("selection_origin") or "llm",
             }
         else:
             events.append({
@@ -145,6 +155,7 @@ def build_agent_subgraph(policy_name: str, cfg, deps, tools):
                 "duration_ms": duration_ms,
                 "outcome": "ok" if result["outcome"] == "ok" else result["error"],
                 "source_ids": list(result.get("source_ids") or []),
+                "selection_origin": _selection_origin(state.get("planner_decision") or {}),
             })
         tool_results = list(state.get("tool_results") or []) + [result]
         evidence = list(state.get("evidence") or [])

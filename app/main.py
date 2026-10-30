@@ -168,6 +168,7 @@ def _public_trace(event: dict) -> dict:
         "duration_ms": event.get("duration_ms"),
         "outcome": event.get("outcome"),
         "source_ids": list(event.get("source_ids") or []),
+        "selection_origin": event.get("selection_origin") if event.get("selection_origin") in {"llm", "workflow", "recovery"} else "llm",
     }
 
 

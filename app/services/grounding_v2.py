@@ -80,6 +80,47 @@ def claims_grounded(text: str, evidence: list[dict]) -> bool:
         piece = chunk.strip()
         if not any(piece in item or item in piece for item in restrictions):
             return False
+    return _plan_attributes_stay_together(body, _fact_rows(evidence))
+
+
+def _matching_rows(token: str, rows: list[dict]) -> list[dict]:
+    found: list[dict] = []
+    for row in rows:
+        labels = [str(row.get(key) or "") for key in ("name", "title", "plan_id", "source_id")]
+        if any(label and (token == label or token in label or label.startswith(token)) for label in labels):
+            found.append(row)
+    return found
+
+
+def _plan_attributes_stay_together(text: str, rows: list[dict]) -> bool:
+    """A price or allowance after a plan mention must belong to that plan, not a neighbor."""
+    from .model import extract_amounts
+
+    mentions = [
+        (match.start(), match.end(), match.group())
+        for pattern in (_PLAN_NAME_RE, _PLAN_ID_RE)
+        for match in pattern.finditer(text or "")
+    ]
+    mentions.sort()
+    for index, (_start, end, token) in enumerate(mentions):
+        next_start = mentions[index + 1][0] if index + 1 < len(mentions) else len(text)
+        window = text[end:next_start]
+        matched = _matching_rows(token, rows)
+        if not matched:
+            continue
+        yen = set()
+        gigabytes: set[float] = set()
+        for row in matched:
+            for key in ("monthly_yen", "options_yen"):
+                if row.get(key) is not None:
+                    yen.add(int(row[key]))
+            for key in ("data_allowance_gb", "usage_gb"):
+                if row.get(key) is not None:
+                    gigabytes.add(float(row[key]))
+        if any(amount not in yen for amount in extract_amounts(window)):
+            return False
+        if any(not any(abs(float(raw) - known) < 1e-6 for known in gigabytes) for raw in _GB_RE.findall(window)):
+            return False
     return True
 
 
