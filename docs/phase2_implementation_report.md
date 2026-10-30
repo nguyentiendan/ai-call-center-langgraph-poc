@@ -12,9 +12,7 @@ This is a demo. It is not a production support system.
 | M1 YAML | `fe94fc8` | Version 2 schema, prompts, fictional catalog / plans / FAQ |
 | M2 agent | `73933e0` | LangGraph support subgraph, policy gateway, read-only tools |
 | M3 UI and API | `27453ef` | Citations, dev trace UI, P2-20–P2-30 tests, two Playwright tests |
-| M4 verification | the commit that adds this report | Live OpenAI tests, Docker smoke, this report |
-
-`git log --oneline feature/phase2-hybrid-agent` is the source for the M4 SHA after that commit is created.
+| M4 verification | `dc46482` | Live OpenAI tests, Docker smoke, this report |
 
 ## How to run
 
